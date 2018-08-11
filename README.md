@@ -1,3 +1,3 @@
 yutes
 =====
-README text here.
+Small collection of utilities
