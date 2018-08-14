@@ -8,6 +8,7 @@
  cut cute
  (for-syntax syntax-symbol? syntax-number? syntax-integer? format-syntax)
  any?
+ every?
  rmap
  rappend
  values->list
@@ -17,7 +18,13 @@
  values-rest
  values-take
  values-drop
- values-map)
+ values-map
+
+ define/contract<+/->
+ define/match/contract<+/->)
+
+(require racket/contract racket/match)
+
 
 
 
@@ -57,7 +64,13 @@
 
     [rmap (->* (procedure? list?) #:rest (listof list?) list?)]
     [rappend (-> list? list? list?)]
-    [any? (-> (list? boolean?) boolean?)]))
+    [any? (-> (list? boolean?) boolean?)]
+    [every? (-> (list? boolean?) boolean?)]))
+
+  
+
+
+  
 
   
   (struct curried-procedure
@@ -206,9 +219,15 @@
 
 
   
+  
   (define (any? xs)
     (for/fold ([result #f])
 	([x xs] #:break result)
+      x))
+
+  (define (every? xs)
+    (for/fold ([result #t])
+	([x xs] #:break (not result))
       x))
 
   (define (rmap g xs . xss)
@@ -292,7 +311,7 @@
   (syntax-rules ()
     [(_ expr index value)
      (apply values
-	  (list-set (values->list expr) index value))]))
+	    (list-set (values->list expr) index value))]))
 
 
 
@@ -319,6 +338,81 @@
 (define-syntax values-map
   (syntax-rules ()
     [(_ fun expr) (apply values (map fun (values->list expr)))]))
+
+
+(define-for-syntax current-format-with-contract
+  (make-parameter "~a<+c>"))
+
+(define-for-syntax current-format-without-contract
+  (make-parameter "~a<-c>"))
+
+(define current-internal-contract-switch
+  (make-parameter #t))
+
+(define-syntax (define/contract<+/-> stx)
+  (syntax-parse stx
+    [(_ fmt<+c>:str fmt<-c>:str (name:id args:id ...)
+	contract:expr
+	body:expr ...+)
+     (let ([name<+c> (format-syntax (syntax->datum #'fmt<+c>) #'name)]
+	   [name<-c> (format-syntax (syntax->datum #'fmt<-c>) #'name)])
+       #`(begin
+	   (define (#,name<-c> args ...) body ...)
+	   (define/contract #,name<+c> contract #,name<-c>)
+	   (define name
+	     (if (current-internal-contract-switch)
+		 #,name<+c>
+		 #,name<-c>))))]
+    [(_ (name:id args:id ...) contract:expr body:expr ...+)
+     #`(define/contract<+/->
+	 #,(datum->syntax stx (current-format-with-contract))
+	 #,(datum->syntax stx (current-format-without-contract))
+	 (name args ...)
+	 contract
+	 body ...)]
+    [(_ fmt<+c>:str fmt<-c>:str (name:id args:id ... . rest-args)
+	contract:expr
+	body:expr ...+)
+     (let ([name<+c> (format-syntax (syntax->datum #'fmt<+c>) #'name)]
+	   [name<-c> (format-syntax (syntax->datum #'fmt<-c>) #'name)])
+       #`(begin
+	   (define (#,name<-c> args ... . rest-args) body ...)
+	   (define/contract #,name<+c> contract #,name<-c>)
+	   (define name
+	     (if (current-internal-contract-switch)
+		 #,name<+c>
+		 #,name<-c>))))]
+    [(_ (name:id args:id ... . rest-args) contract:expr body:expr ...+ )
+     #`(define/contract<+/->
+	 #,(datum->syntax stx (current-format-with-contract))
+	 #,(datum->syntax stx (current-format-without-contract))
+	 (name args ... . rest-args)
+	 contract
+	 body ...)]))
+
+(define-syntax (define/match/contract<+/-> stx)
+  (syntax-parse stx
+    [(_ fmt<+c>:str fmt<-c>:str (name:id args:id ...)
+	contract:expr
+	body:expr ...+)
+     (let ([name<+c> (format-syntax (syntax->datum #'fmt<+c>) #'name)]
+	   [name<-c> (format-syntax (syntax->datum #'fmt<-c>) #'name)])
+       #`(begin
+	   (define/match (#,name<-c> args ...) body ...)
+	   (define/contract #,name<+c> contract #,name<-c>)
+	   (define name
+	     (if (current-internal-contract-switch)
+		 #,name<+c>
+		 #,name<-c>))))]
+    [(_ (name:id args:id ...) contract:expr body:expr ...+)
+     #`(define/match/contract<+/->
+	 #,(datum->syntax stx (current-format-with-contract))
+	 #,(datum->syntax stx (current-format-without-contract))
+	 (name args ...)
+	 contract
+	 body ...)]))
+
+
 
 
 
@@ -437,10 +531,4 @@
 
   (check-equal?
    (rappend '(2 1) '(3 4))
-   '(1 2 3 4))
-
-
-  
-
-
-  );; end of module test
+   '(1 2 3 4)));; end of module test
